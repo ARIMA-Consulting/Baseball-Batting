@@ -1,0 +1,161 @@
+---
+title: "Fatal Police Shootings"
+author: "Tyler Harris"
+date: "10/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Uncomment the commands below if you have not installed either the tidyverse or Lahman packages
+# install.packages("tidyverse")
+# install.packages("Lahman")
+
+# Load Libraries
+require(tidyverse)
+require(Lahman)
+```
+
+```{r}
+# Imports the BattingPost data set from the Lahman database. Notice how there is not a file to read in. The data is part of the package!
+data(BattingPost)
+
+# Check the data import
+# Notice again that we did not have create and object and assign it data like we normally do with R. It just knows to create a data frame called "BattingPost"
+head(BattingPost)
+```
+
+```{r}
+# Filter down the data a bit. We went the year to be 1920 and later because that's when the "Live Ball Era" starts. We also want only WS in the round column because that's for the World Series.
+
+SlimBattingPost <- BattingPost %>%
+  filter(yearID >= 1920) %>%
+  filter(round == "WS")
+
+# Check the data
+head(SlimBattingPost)
+```
+
+```{r}
+# Print number of rows in each data set
+nrow(BattingPost)
+nrow(SlimBattingPost)
+```
+
+```{r}
+# Set Seed
+set.seed(1337)
+```
+
+```{r}
+# Creates an ID column so we can more easily sort train from test
+SlimBattingPost$id <- 1:nrow(SlimBattingPost)
+
+# Creates set of data randomly sampling 80% of total data
+train <- SlimBattingPost %>% dplyr::sample_frac(.80)
+
+# Creates set of data with other 20%
+test <- dplyr::anti_join(SlimBattingPost, train, by = 'id')
+
+# Check the data
+head(test)
+paste("The test data has this many rows:", nrow(test))
+head(train)
+paste("The train data has this many rows:",nrow(train))
+```
+
+```{r}
+# Visually determine type of distribution of Runs (R) in dataset
+hist(SlimBattingPost$R)
+
+# Classic Poisson distribution. Almost all data is 0 or 1, heavily skewed
+```
+
+```{r}
+# Start with everything else as independent variables with runs (R) as the dependent variable
+# For a data dictionary about what each abbreviation means, go to: http://www.seanlahman.com/files/database/readme2017.txt
+# Search for "BattingPost" in that document and the third match should be the table where the abbreviations are defined. G = Games, AB = At Bats, etc.
+
+# Create the logistic regression with everything in it, make sure to include the Poisson distribution as the family. If we had normal data, we would use Gaussian in its place.
+
+fitAll <- glm(R ~ G + AB + H + X2B + X3B + HR + RBI + SB + CS + BB + SO + IBB + HBP + SH + SF + GIDP , data = train, family = "poisson")
+
+summary(fitAll)
+```
+
+```{r}
+# Start step-wise regression.
+# Looks like G is the least significant
+# Make sure to create a new object name so we do not overwrite our models as we go along!
+
+fit1 <- glm(R ~ AB + H + X2B + X3B + HR + RBI + SB + CS + BB + SO + IBB + HBP + SH + SF + GIDP , data = train, family = "poisson")
+
+summary(fit1)
+```
+
+```{r}
+# Looks like SO is the least significant
+# Make sure to create a new object name so we do not overwrite our models as we go along!
+
+fit2 <- glm(R ~ AB + H + X2B + X3B + HR + RBI + SB + CS + BB + IBB + HBP + SH + SF + GIDP , data = train, family = "poisson")
+
+summary(fit2)
+```
+
+```{r}
+# Final Fit
+fitFinal <- glm(R ~ AB + H + X2B + X3B + HR + CS + BB + IBB + HBP + GIDP , data = train, family = "poisson")
+
+summary(fitFinal)
+```
+
+```{r}
+# Create predictions
+predictions <- predict(fitFinal, test, type = 'response')
+
+# Check the output
+head(predictions)
+```
+
+```{r}
+# Add predictions to test data and create new data frame
+predictDF <- data.frame(test, predictions)
+
+# Create new data frame with less columns
+SlimPredictDF <- select(predictDF, "yearID", "round", "playerID", "teamID", "R", "predictions")
+
+# Add rounded predictions as a column
+SlimPredictDF$roundedPredictions <- round(SlimPredictDF$predictions, 0)
+
+# Create Boolean Column to see if real and predictions match
+SlimPredictDF$TFmatch <- SlimPredictDF$R == SlimPredictDF$roundedPredictions
+
+# Check data structure 
+head(SlimPredictDF)
+```
+
+```{r}
+# Get the results!
+results_table <- SlimPredictDF %>%
+  group_by(TFmatch) %>%
+  summarise(count = n())
+results_table
+```
+
+```{r}
+# Simple linear model to get p-vale for whether real Runs (R) are significantly prediction by predictions
+
+fitLM <- lm(R ~ roundedPredictions, data = SlimPredictDF)
+summary(fitLM)
+```
+
+
+
+
+
+
+
+
